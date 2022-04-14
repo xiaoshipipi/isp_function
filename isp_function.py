@@ -26,8 +26,33 @@ M_rgb2xyz=np.array([[0.4123908 , 0.35758434, 0.18048079],
 M_xyz2rgb=np.array([[3.24096994,-1.53738318,-0.49861076],
                     [-0.96924364,1.8759675,0.04155506],
                     [0.05563008,-0.20397695,1.05697151]])
+lab_ideal=np.array( # x-rite 色彩标准，X-Rite官网提供的LAB色彩真值
+    [[37.986,13.555,14.059],#1，1深肤色
+      [65.711,18.13,17.81],#1，2浅肤色
+      [49.927,-4.88,-21.925],
+      [43.139,-13.095,21.905],
+      [55.112,8.844,-25.399],
+      [70.719,-33.397,-0.199],
+      [62.661,36.067,57.096],
+      [40.02,10.41,-45.964],
+      [51.124,48.239,16.248],
+      [30.325,22.976,-21.587],
+      [72.532,-23.709,57.255],
+      [71.941,19.363,67.857],
+      [28.778,14.179,-50.297],#3，1 蓝色
+      [55.261,-38.342,31.37],#3，2 绿色
+      [42.101,53.378,28.19],#3，3 红色
+      [81.733,4.039,79.819],#3，4 黄色
+      [51.935,49.986,-14.574],#3，5 品红
+      [51.038,-28.631,-28.638],#3，6 青色
+      [96.539,-0.425,1.186],
+      [81.257,-0.638,-0.335],
+      [66.766,-0.734,-0.504],
+      [50.867,-0.153,-0.27],
+      [35.656,-0.421,-1.231],
+      [20.461,-0.079,-0.973]],dtype='float32')
 
-def rawread(file_path, size=(2304,1296),bayer='RG',OB=0):
+def rawread(file_path, size=(4208,3120),bayer='BG',OB=1024):
     img=np.fromfile(file_path,dtype='uint16')
     img=img.reshape((size[1], size[0]))
     if   bayer=='RG':
@@ -47,7 +72,7 @@ def rawread(file_path, size=(2304,1296),bayer='RG',OB=0):
 def gamma(x,colorspace='sRGB'):
     y=np. zeros (x. shape)
     y[x>1]=1
-    if colorspace in ( 'sRGB', 'srgh'):
+    if colorspace in ( 'sRGB', 'srgb'):
         y[(x>=0)&(x<=0.0031308)]=(323/25*x[ (x>=0)&(x<=0.0031308)])
         y[(x<=1)&(x>0.0031308)]=(1.055*abs(x[ (x<=1)&(x>0.0031308)])**(1/2.4)-0.055)
     elif colorspace in ('TP', 'my'):  
@@ -136,8 +161,69 @@ def rgb2hue(rgb):
     theta=theta/np.pi*180
     hue=np.zeros(theta.shape)
     hue[b<=g]=theta[b<=g]    
-    hue[b>g]-360-theta[b>g]
+    hue[b>g]=360-theta[b>g]
     return hue 
+
+def rgb2hsv(img):
+    if (img.shape[1]==3)&(img.ndim==2):
+        rgb=img.copy()
+        func_reverse=lambda x : x    
+    elif (img.shape[2]==3)&(img.ndim==3):
+        (rgb, func_reverse)=im2vector(img)    
+    r=rgb[:,0]
+    g=rgb[:,1]
+    b=rgb[:,2]
+    theta=np.zeros(r.shape)
+    # flag=~((r==g)&(g==b)&(r==b)) #BUG 在下方的test中，有几个像素转换出现了NAN
+    flag=~(g==b) # g=b的情况下arccos变量可能因为浮点数计算误差导致<-1或者>1,导致arccos无定义
+    theta[flag]=np.arccos((1/2*((r[flag]-g[flag])+(r[flag]-b[flag])))/(((r[flag])**2+(g[flag])**2+(b[flag])**2-r[flag]*g[flag]-b[flag]*g[flag]-r[flag]*b[flag])**(1/2)))
+    theta=theta/np.pi*180
+    flag=(r>=g)&(g==b)
+    theta[flag]=0
+    flag=(r<g)&(g==b)
+    theta[flag]=180
+    h=np.zeros(theta.shape)
+    h[b<=g]=theta[b<=g]    
+    h[b>g]=360-theta[b>g]
+    s=np.zeros(theta.shape)
+    max_rgb=np.maximum(r,np.maximum(g,b))
+    min_rgb=np.minimum(r,np.minimum(g,b))
+    s=(max_rgb-min_rgb)/max_rgb
+    v=max_rgb
+    hsv=np.zeros(rgb.shape)
+    hsv[:,0],hsv[:,1],hsv[:,2]=h,s,v    
+    img_out=func_reverse(hsv)        
+    return img_out 
+
+def hsv2rgb(img):
+    if (img.shape[1]==3)&(img.ndim==2):
+        hsv=img.copy()
+        func_reverse=lambda x : x    
+    elif (img.shape[2]==3)&(img.ndim==3):
+        (hsv, func_reverse)=im2vector(img)    
+    h,s,v=hsv[:,0],hsv[:,1],hsv[:,2]
+    h_i=np.floor(h/60)
+    f=h/60-h_i
+    p=v*(1-s)
+    q=v*(1-f*s)
+    t=v*(1-(1-f)*s)
+    r=np.zeros(hsv.shape[0])
+    g=np.zeros(hsv.shape[0])
+    b=np.zeros(hsv.shape[0])
+    idx=(h_i==0)
+    r[idx],g[idx],b[idx]=v[idx],t[idx],p[idx]
+    idx=(h_i==1)
+    r[idx],g[idx],b[idx]=q[idx],v[idx],p[idx]
+    idx=(h_i==2)
+    r[idx],g[idx],b[idx]=p[idx],v[idx],t[idx]
+    idx=(h_i==3)
+    r[idx],g[idx],b[idx]=p[idx],q[idx],v[idx]
+    idx=(h_i==4)
+    r[idx],g[idx],b[idx]=t[idx],p[idx],v[idx]
+    idx=(h_i==5)
+    r[idx],g[idx],b[idx]=v[idx],p[idx],q[idx]
+    img_out=func_reverse(np.vstack((r,g,b)).transpose())
+    return img_out 
 
 def hsv(img,hue_lut=0,sat_lut=64):
     if (img.shape[1]==3)&(img.ndim==2):
@@ -198,6 +284,33 @@ def rgb2lab(img,whitepoint='D65'):
     b=200*(f(xyz[:,1]/Yn)-f(xyz[:,2]/Zn))
     Lab=np.vstack((L,a,b)).transpose()
     img_out=func_reverse(Lab)
+    return img_out
+
+def lab2rgb(img,whitepoint='D65'):
+    if (img.ndim==3):
+        if (img.shape[2]==3):
+            (lab,func_reverse)=im2vector(img)
+    elif (img.ndim==2):
+        if (img.shape[1]==3):
+            lab=img
+            func_reverse=lambda x : x
+        elif (img.shape[0]>80)&(img.shape[1]>80):
+            img=np.dstack((img,img,img))
+            (lab,Func_reverse)=im2vector(img)
+    lab=lab.transpose()
+    if whitepoint=='D65':
+        Xn=95.047/100
+        Yn=100/100
+        Zn=108.883/100
+    f_reverse=lambda t : (t>(6/29))*(t**3)+\
+        (t<=(6/29))*(3*((6/29)**2)*(t-4/29))
+    xyz=np.vstack((Xn*f_reverse((lab[0,:]+16)/116+lab[1,:]/500),
+                   Yn*f_reverse((lab[0,:]+16)/116),
+                   Zn*f_reverse((lab[0,:]+16)/116-lab[2,:]/200) ))
+    rgb=M_xyz2rgb@xyz
+    rgb=rgb.transpose()
+    rgb=gamma(rgb,colorspace='sRGB')
+    img_out=func_reverse(rgb)
     return img_out
 
 def impoly(img,poly_position=None):
@@ -278,3 +391,12 @@ def impoly(img,poly_position=None):
 #%%
 # rgb=np.array([[0,1,0]])
 # print(rgb2lab(rgb))
+#%%
+# import matplotlib.pyplot as plt
+# img=plt.imread(r"C:\Users\Administrator\Pictures\IMG_1432.JPG").astype('float32')/255
+# lab=rgb2lab(img)
+# img_re=lab2rgb(lab)
+
+
+
+
