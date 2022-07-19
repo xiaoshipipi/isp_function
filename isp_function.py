@@ -27,24 +27,24 @@ M_xyz2rgb=np.array([[3.24096994,-1.53738318,-0.49861076],
                     [-0.96924364,1.8759675,0.04155506],
                     [0.05563008,-0.20397695,1.05697151]])
 lab_ideal=np.array( # x-rite 色彩标准，X-Rite官网提供的LAB色彩真值
-    [[37.986,13.555,14.059],#1，1深肤色
-      [65.711,18.13,17.81],#1，2浅肤色
-      [49.927,-4.88,-21.925],
-      [43.139,-13.095,21.905],
-      [55.112,8.844,-25.399],
-      [70.719,-33.397,-0.199],
-      [62.661,36.067,57.096],
-      [40.02,10.41,-45.964],
-      [51.124,48.239,16.248],
-      [30.325,22.976,-21.587],
-      [72.532,-23.709,57.255],
-      [71.941,19.363,67.857],
-      [28.778,14.179,-50.297],#3，1 蓝色
-      [55.261,-38.342,31.37],#3，2 绿色
-      [42.101,53.378,28.19],#3，3 红色
-      [81.733,4.039,79.819],#3，4 黄色
-      [51.935,49.986,-14.574],#3，5 品红
-      [51.038,-28.631,-28.638],#3，6 青色
+    [[37.986,13.555,14.059],#1,1 dark skin 深肤色
+      [65.711,18.13,17.81],#1,2 light skin 浅肤色
+      [49.927,-4.88,-21.925],#1,3 blue sky蓝天
+      [43.139,-13.095,21.905],#1,4 foliage 绿叶
+      [55.112,8.844,-25.399],#1,5 blue flower 蓝花
+      [70.719,-33.397,-0.199],#1,6 bluish green 蓝绿色
+      [62.661,36.067,57.096],#2,1 orange 橙色
+      [40.02,10.41,-45.964],#2,2 purplish blue 紫蓝色
+      [51.124,48.239,16.248],#2,3 moderate red 粉红色
+      [30.325,22.976,-21.587],#2,4 purple 紫色
+      [72.532,-23.709,57.255],#2,5 yellow green 黄绿色
+      [71.941,19.363,67.857],# 2,6 orange yellow 橙黄色
+      [28.778,14.179,-50.297],#3,1 bluw 蓝色
+      [55.261,-38.342,31.37],#3,2 green 绿色
+      [42.101,53.378,28.19],#3,3 red 红色
+      [81.733,4.039,79.819],#3,4 yellow 黄色
+      [51.935,49.986,-14.574],#3,5 magenta 品红
+      [51.038,-28.631,-28.638],#3,6 cyan 青色
       [96.539,-0.425,1.186],
       [81.257,-0.638,-0.335],
       [66.766,-0.734,-0.504],
@@ -103,7 +103,11 @@ def awb(img, awb_para):
         rgb=img
         func_reverse=lambda x : x    
     elif (img.shape[2]==3)&(img.ndim==3):
-        (rgb,func_reverse)=im2vector(img)   
+        (rgb,func_reverse)=im2vector(img)
+    if type(awb_para)==list:
+        awb_para=np.array(awb_para)
+    if (awb_para>=20).all():
+        awb_para=awb_para/1024
     rgb[:,0]=rgb[:,0]*awb_para[0]    
     rgb[:,1]=rgb[:,1]*awb_para[1]    
     rgb[:,2]=rgb[:,2]*awb_para[2]    
@@ -115,7 +119,11 @@ def ccm(img, ccm):
         rgb=img
         func_reverse=lambda x : x    
     elif (img.shape[2]==3)&(img.ndim==3):
-        (rgb,func_reverse)=im2vector(img)    
+        (rgb,func_reverse)=im2vector(img)
+    if type(ccm)==list:
+        ccm=np.array(ccm)
+    if (ccm>=1024).any():
+        ccm=ccm/1024
     rgb=rgb.transpose()
     rgb=ccm@rgb
     rgb=rgb.transpose()    
@@ -251,12 +259,37 @@ def hsv(img,hue_lut=0,sat_lut=64):
     return img_out
 
 def gaussian(R, sigma=1):
-    f=lambda x : 1/sigma/np.sqrt(2*np.pi)*np.exp(-(x**2)/2/(sigma**2))
-    (x,y)=np.meshgrid(np.arange(-R,R+1),np.arange(-R,R+1))
-    d=np.hypot(x,y)
-    w=f(d)
-    w=w/w.sum()
+    if sigma!=0:
+        f=lambda x : 1/sigma/np.sqrt(2*np.pi)*np.exp(-(x**2)/2/(sigma**2))
+        R=int(np.ceil(R))
+        (x,y)=np.meshgrid(np.arange(-R,R+1),np.arange(-R,R+1))
+        d=np.hypot(x,y)
+        w=f(d)
+        w=w/w.sum()
+    else:
+        w=np.ones((1,1))
     return w
+
+def xyz2lab(img,whitepoint='D65'):
+    if (img.ndim==3):
+        if (img.shape[2]==3):
+            (xyz,func_reverse)=im2vector(img)
+    elif (img.ndim==2):
+        if (img.shape[1]==3):
+            xyz=img
+            func_reverse=lambda x : x
+    f=lambda t : (t>((6/29)**3))*(t**(1/3))+\
+        (t<=(6/29)**3)*(29*29/6/6/3*t+4/29)
+    if whitepoint=='D65':
+        Xn=95.047/100
+        Yn=100/100
+        Zn=108.883/100
+    L=116*f(xyz[:,1]/Yn)-16
+    a=500*(f(xyz[:,0]/Xn)-f(xyz[:,1]/Yn))
+    b=200*(f(xyz[:,1]/Yn)-f(xyz[:,2]/Zn))
+    Lab=np.vstack((L,a,b)).transpose()
+    img_out=func_reverse(Lab)
+    return img_out
 
 def rgb2lab(img,whitepoint='D65'):
     if (img.ndim==3):
@@ -286,6 +319,31 @@ def rgb2lab(img,whitepoint='D65'):
     img_out=func_reverse(Lab)
     return img_out
 
+def lab2xyz(img,whitepoint='D65'):
+    if (img.ndim==3):
+        if (img.shape[2]==3):
+            (lab,func_reverse)=im2vector(img)
+    elif (img.ndim==2):
+        if (img.shape[1]==3):
+            lab=img
+            func_reverse=lambda x : x
+        elif (img.shape[0]>80)&(img.shape[1]>80):
+            img=np.dstack((img,img,img))
+            (lab,Func_reverse)=im2vector(img)
+    lab=lab.transpose()
+    if whitepoint=='D65':
+        Xn=95.047/100
+        Yn=100/100
+        Zn=108.883/100
+    f_reverse=lambda t : (t>(6/29))*(t**3)+\
+        (t<=(6/29))*(3*((6/29)**2)*(t-4/29))
+    xyz=np.vstack((Xn*f_reverse((lab[0,:]+16)/116+lab[1,:]/500),
+                   Yn*f_reverse((lab[0,:]+16)/116),
+                   Zn*f_reverse((lab[0,:]+16)/116-lab[2,:]/200) ))
+    xyz=xyz.transpose()
+    img_out=func_reverse(xyz)
+    return img_out
+
 def lab2rgb(img,whitepoint='D65'):
     if (img.ndim==3):
         if (img.shape[2]==3):
@@ -313,7 +371,18 @@ def lab2rgb(img,whitepoint='D65'):
     img_out=func_reverse(rgb)
     return img_out
 
-def impoly(img,poly_position=None):
+def lab_background():
+    import matplotlib.pyplot as plt
+    a,b=np.meshgrid(np.arange(-60,80,0.25),np.arange(100,-60,-0.25))
+    L=np.ones(a.shape)*80
+    img=lab2rgb(np.dstack((L,a,b)))
+    plt.figure(tight_layout=True,figsize=(7,8))
+    plt.axes(xlim=[-60,80],ylim=[-60,100])
+    plt.grid('on')
+    plt.imshow(img,extent=(-60,80,-60,100))
+    return
+
+def impoly(img,poly_position=None): #四边形框选图像ROI
     "(rgb_mean,rgb_std,poly_position)=impoly(img)\n(rgb_mean,rgb_std,poly_position)=impoly(img,poly_position)"
     import matplotlib.pyplot as plt
     if poly_position is None:
